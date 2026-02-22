@@ -1,0 +1,33 @@
+---
+title: "alternative-protein-merge"
+author: "Gabby Bui"
+date: "2026-02-22"
+output: html_document
+---
+```{r}
+library(tidyverse)
+proceeded <- read_csv("https://www.dropbox.com/scl/fi/sdd5sq80l0rv002os6v1w/All_Companies_Database.csv?rlkey=chodjs7k4aw5d0pxrs42j05xt&st=nu1stpv5&dl=1")
+head(proceeded)
+```
+
+```{r}
+deals <- read_csv("https://www.dropbox.com/scl/fi/7y9n8e8yuldtu3y8abyou/Alternative-Protein-Deal.csv?rlkey=2v74j4len6mxgl71he9l0a4f1&st=c6azike2&dl=1")
+head(deals)
+```
+
+```{r}
+company_ids <- deals %>%
+  select(CompanyName, CompanyID) %>%
+  distinct(CompanyName, .keep_all = TRUE)
+
+merged <- proceeded %>%
+  left_join(company_ids, by = c("Company" = "CompanyName"))
+```
+
+```{r}
+head(merged)
+```
+```{r}
+write_csv(merged, "all_companies_merged.csv")
+```
+
