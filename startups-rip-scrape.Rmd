@@ -1,0 +1,101 @@
+---
+title: "startsup.rip-scrape"
+author: "Gabby Bui"
+date-format: "YYYY-MM-DDTHH:mm:ssZ"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+Load libraries
+
+```{r}
+library(rvest)
+library(xml2)
+library(tidyverse)
+library(httr)
+```
+
+Get URLS
+
+```{r}
+sitemap <- read_xml("https://startups.rip/sitemap.xml")
+ns <- xml_ns_rename(xml_ns(sitemap), d1 = "sm")
+
+company_urls <- sitemap %>%
+  xml_find_all("//sm:loc", ns) %>%
+  xml_text() %>%
+  .[str_detect(., "/company/")]
+```
+
+Scrape each company's page
+
+```{r}
+scrape_company <- function(url) {
+  Sys.sleep(2)
+  
+  page <- tryCatch(read_html(url), error = function(e) NULL)
+  if (is.null(page)) {
+    return(tibble(url = url, company_name = NA, slug = str_extract(url, "[^/]+$"),
+                  tagline = NA, status = NA, yc_batch = NA, founded = NA, full_text = NA))
+  }
+  
+  page_text <- html_text(page)
+  
+  tibble(
+    url = url,
+    company_name = page %>% html_element("h2") %>% html_text(trim = TRUE),
+    slug = str_extract(url, "[^/]+$"),
+    tagline = page %>% html_elements("p") %>% html_text(trim = TRUE) %>% .[1],
+    status = str_extract(page_text, "(Acquired|Dead|Active|Shutdown|Closed|Failed|Pivoted)"),
+    yc_batch = str_extract(page_text, "(Summer|Winter|Fall|Spring)\\s+\\d{4}"),
+    founded = str_extract(page_text, "Founded\\s*(\\d{4})") %>% str_extract("\\d{4}"),
+    full_text = page %>% html_elements("h2, h3, p, li") %>% html_text(trim = TRUE) %>% paste(collapse = "\n\n")
+  )
+}
+
+startups_data <- map_dfr(company_urls, scrape_company)
+```
+
+Extract key sections
+
+```{r}
+extract_section <- function(text, section_name) {
+  if (is.na(text)) return(NA_character_)
+  pattern <- paste0("(?s)", section_name, "\\n\\n(.*?)(?=\\n\\n(?:Overview|Founding Story|Timeline|What They Built|Market Position|Target Customers|Market Size|Competition|Business Model|Traction|Post-Mortem|Key Lessons|Sources|Technical Specs|$))")
+  match <- str_extract(text, pattern)
+  if (is.na(match)) return(NA_character_)
+  str_remove(match, paste0("^", section_name, "\\n\\n")) %>% str_trim()
+}
+
+startups_enriched <- startups_data %>%
+  mutate(
+    overview = map_chr(full_text, ~extract_section(.x, "Overview")),
+    business_model = map_chr(full_text, ~extract_section(.x, "Business Model")),
+    post_mortem = map_chr(full_text, ~extract_section(.x, "Post-Mortem")),
+    key_lessons = map_chr(full_text, ~extract_section(.x, "Key Lessons"))
+  )
+```
+
+Test
+
+```{r}
+startups_enriched %>% select(-full_text) %>% print(n = Inf)
+```
+
+```{r}
+startups_enriched %>% count(status, sort = TRUE)
+```
+
+```{r}
+startups_enriched %>% count(yc_batch, sort = TRUE)
+```
+--> Looks like working!
+
+Save
+
+```{r}
+write_csv(startups_enriched, "startups_rip_scraped.csv")
+```
